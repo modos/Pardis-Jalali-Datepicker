@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 The format is based on Keep a Changelog, and this project adheres to Semantic Versioning.
 
+## [1.1.1] - 2026-02-24
+
+### Fixed
+- Fixed `goToToday()` selecting today even when it is outside `minDate`/`maxDate` or in `disabledDates`; the view still navigates to today but no selection occurs if today is disabled.
+- Fixed keyboard arrow-key navigation throwing an uncaught exception when the focused day is at the absolute year boundary (year 1 or year 3177); navigation now stops silently at the boundary.
+- Fixed `getPresetRange('thisWeek')` throwing an uncaught exception when today falls in the first week of year 1; the week start is now clamped to `1/1/1`.
+- Fixed README `disabledDates` predicate example using incorrect destructuring (`{ gy, gm, gd }`) from `buildDatePayload`; replaced with `JalaaliUtil.toGregorian()` which returns those field names correctly.
+
 ## [1.1.0] - 2026-02-24
 
 ### Added

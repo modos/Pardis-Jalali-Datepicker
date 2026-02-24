@@ -1,5 +1,306 @@
 # Audit Report
 
+## 2026-02-24
+
+### Summary
+
+Full repository audit of **pardis-jalali-datepicker** at version **1.1.0** (commit `ae34ca9`, tag `v1.1.0`). The library has matured significantly since the v1.0.1 audit: all previously reported High and most Medium/Low findings have been resolved. v1.1.0 adds extensive new surface area — keyboard navigation, accessibility attributes, swipe gestures, preset ranges, `disabledDates`, `highlightedDates`, `maxRange`, and `numeralType`. Code quality remains high with correct Jalaali math, clean headless architecture, and a well-scoped published CSS. Several new findings were identified in the added surface area, all of Medium or Low severity. No Critical or new High issues found.
+
+---
+
+### Strengths
+
+- **All v1.0.1 bugs resolved** — `goToToday()` now emits a full payload, `destroy()` stores and calls `_offViewChange`, input mask validates year range, landing page GitHub links fixed, `npm test` script added, `LICENSE` file present, README updated with absolute image URLs and npm install instructions.
+- **CSS is clean and scoped** — `lib/pardis-jalali-datepicker.css` has no global resets, no `@font-face`, no `@import`. Variables are namespaced under `:root` and overridden per-theme via `[data-pardis-theme]`. No demo CSS leaks into the published file.
+- **npm package readiness** — `package.json` has `name`, `version`, `main`, `style`, `files`, `repository`, `homepage`, `bugs`, `license`, `keywords`, `author`. The `files` array publishes only the two `lib/` artifacts. `npm test` is wired. Version `1.1.0` matches `CHANGELOG.md` and git tag `v1.1.0`.
+- **Correct date math** — Jalaali ↔ Gregorian conversion uses the reference `jalaali-js` algorithm with integer-division (`~~`). Leap year detection, month-length, and day-of-week calculations are correct. Boundary clamping (`MIN_YEAR=1`, `MAX_YEAR=3177`) is consistent across navigation methods.
+- **Range selection** — Start/end swap is handled correctly (JDN comparison). `maxRange` validation fires on both direct selection and preset application. Hover preview correctly uses the ordered `[lo, hi]` range.
+- **Comprehensive ARIA** — `role="dialog"` + `aria-modal` on popover, `role="grid"` + `role="gridcell"` on calendar, `aria-label` with full Persian date string on each cell, `aria-selected`, `aria-disabled`, `aria-expanded` on input, `aria-describedby` to format hint, `role="columnheader"` on weekday headers. These are all present in `_renderDayView` and `_buildDOM`.
+- **Keyboard navigation** — Full contract implemented: arrows ±1/±7 days with month wrap, PageUp/Down for months, Shift+PageUp/Down for years, Home/End for week row boundaries, T for today, Enter/Space for selection, Escape to close. RTL arrow-key semantics (Right=−1, Left=+1) correctly mirror the visual layout.
+- **Full destroy() cleanup** — Removes `focus`, `click` (document), `keydown` (document), all 5 engine event unsubs, input mask listeners, pointer events, calendar keydown, and DOM (both inline and popover paths).
+- **CHANGELOG hygiene** — Follows Keep a Changelog. All four releases (1.0.0–1.1.0) are documented in chronological order with clear Added/Fixed/Changed/Removed sections.
+
+---
+
+### Findings
+
+#### Critical
+
+*(none)*
+
+#### High
+
+*(none)*
+
+---
+
+#### Medium
+
+**M1 — `disabledDates` predicate in README example calls `PardisEngine.buildDatePayload()` incorrectly**
+
+- **Severity**: Medium
+- **Title**: README `disabledDates` code example passes wrong destructuring to `new Date()`
+- **Evidence**: `README.md` lines 243–247:
+  ```js
+  disabledDates: (jy, jm, jd) => {
+    const { gy, gm, gd } = PardisEngine.buildDatePayload(jy, jm, jd, 'gregorian');
+    return new Date(gy, gm - 1, gd).getDay() === 5;
+  },
+  ```
+  When `outputFormat='gregorian'`, `buildDatePayload` returns `{ year, month, day, ... }` (not `{ gy, gm, gd }`). The destructuring `{ gy, gm, gd }` will produce `undefined` for all three values, so `new Date(undefined, undefined, undefined)` → `Invalid Date`, and `.getDay()` returns `NaN`, not 5. The predicate therefore never disables any Friday.
+- **Impact**: Users who copy this example will have silently broken `disabledDates` logic. No error is thrown.
+- **Recommended fix**: Replace the example with:
+  ```js
+  disabledDates: (jy, jm, jd) => {
+    const { year, month, day } = PardisEngine.buildDatePayload(jy, jm, jd, 'gregorian');
+    return new Date(year, month - 1, day).getDay() === 5; // Friday
+  },
+  ```
+  Alternatively, use `JalaaliUtil.toGregorian(jy, jm, jd)` which does return `{ gy, gm, gd }` directly.
+
+---
+
+**M2 — `goToToday()` does not respect `minDate`/`maxDate` constraints — selects a disabled "today"**
+
+- **Severity**: Medium
+- **Title**: Today button bypasses `minDate`/`maxDate` and force-selects today
+- **Evidence**: `lib/pardis-jalali-datepicker.js` lines 261–270:
+  ```js
+  goToToday() {
+    this.viewYear  = this.today.jy;
+    this.viewMonth = this.today.jm;
+    this.viewMode  = 'day';
+    if (!this.rangeMode) {
+      this.selectedDate = { ...this.today };
+      this.emit('select', PardisEngine.buildDatePayload(...));
+    }
+    this.emit('viewChange', this.getViewInfo());
+  }
+  ```
+  There is no `isDisabled(this.today.jy, this.today.jm, this.today.jd)` check before setting `selectedDate`. If today falls outside `minDate`/`maxDate` or is in the `disabledDates` array/predicate, `goToToday()` will select it anyway, bypassing the same check that `selectDate()` performs at line 300.
+- **Impact**: Clicking the "امروز" button in single-date mode can force-select a date that the consumer explicitly disabled. `onChange` fires with the disabled date, which may corrupt application state.
+- **Recommended fix**: Add a guard at the start of the non-range block:
+  ```js
+  if (!this.rangeMode && !this.isDisabled(this.today.jy, this.today.jm, this.today.jd)) {
+    this.selectedDate = { ...this.today };
+    this.emit('select', ...);
+  }
+  ```
+
+---
+
+**M3 — `setOption()` silently ignores most options — undocumented runtime limitation**
+
+- **Severity**: Medium
+- **Title**: `setOption()` only wires `rangeMode` and `outputFormat`; changing other options at runtime has no effect
+- **Evidence**: `lib/pardis-jalali-datepicker.js` lines 1403–1411:
+  ```js
+  setOption(key, value) {
+    this.options[key] = value;
+    if (key === 'rangeMode') { ... }
+    if (key === 'outputFormat') this.engine.outputFormat = value;
+  }
+  ```
+  Calling `setOption('minDate', {...})`, `setOption('disabledDates', [...])`, `setOption('numeralType', 'latin')`, etc. updates `this.options` but does **not** propagate to `this.engine`. The engine still uses the original values.
+- **Impact**: Any consumer who attempts runtime updates to constraints or display settings via `setOption()` will get no effect without an error. Particularly problematic for dynamic forms that need to update `minDate`/`maxDate` based on other inputs.
+- **Recommended fix**: Either expand `setOption()` to propagate all relevant engine properties and re-render, or document clearly in README that only `rangeMode` and `outputFormat` are supported at runtime and other changes require `destroy()` + re-instantiation.
+
+---
+
+**M4 — `_focusDayOffset()` does not clamp to `MIN_YEAR`/`MAX_YEAR` before calling `d2j()`**
+
+- **Severity**: Medium
+- **Title**: Keyboard navigation at year boundaries can call `d2j()` with out-of-range JDN, throwing uncaught exception
+- **Evidence**: `lib/pardis-jalali-datepicker.js` lines 1357–1370:
+  ```js
+  _focusDayOffset(el, jy, jm, jd, offset) {
+    const targetJdn = JalaaliUtil.j2d(jy, jm, jd) + offset;
+    const target    = JalaaliUtil.d2j(targetJdn);
+    ...
+  }
+  ```
+  `JalaaliUtil.d2j()` calls `JalaaliUtil.d2g()` first, then `jalCal(jy)`. If `targetJdn` maps to a Jalaali year outside `[-61, 3177)`, `jalCal()` throws `"Invalid Jalaali year"`. This happens when the user presses `ArrowUp` on the first day of year 1 (navigating 7 days back) or `ArrowDown` on the last day of year 3177.
+- **Impact**: Pressing an arrow key at the calendar's absolute year boundary causes an unhandled exception visible in the console. The calendar becomes unresponsive.
+- **Recommended fix**: Clamp `targetJdn` to the valid range before calling `d2j()`, or catch the exception and do nothing:
+  ```js
+  const minJdn = JalaaliUtil.j2d(PardisEngine.MIN_YEAR, 1, 1);
+  const maxJdn = JalaaliUtil.j2d(PardisEngine.MAX_YEAR, 12, JalaaliUtil.jalaaliMonthLength(PardisEngine.MAX_YEAR, 12));
+  if (targetJdn < minJdn || targetJdn > maxJdn) return;
+  ```
+
+---
+
+**M5 — `thisWeek` preset can produce a range that starts in an invalid year when today is early in year 1**
+
+- **Severity**: Medium (edge case)
+- **Title**: `getPresetRange('thisWeek')` can return a start date before Jalaali year 1
+- **Evidence**: `lib/pardis-jalali-datepicker.js` lines 543–549:
+  ```js
+  const start = fromJdn(todayJdn - dow);   // dow = 0–6
+  const end   = fromJdn(todayJdn - dow + 6);
+  ```
+  If today is 1 Farvardin year 1 (the minimum valid year) and `dow > 0`, `todayJdn - dow` produces a JDN that maps to year 0 or negative, which `jalCal()` will reject as `"Invalid Jalaali year"`. This is an extreme edge case given `MIN_YEAR = 1` corresponds to 622 CE, but it is an unguarded exception path.
+- **Impact**: Clicking "هفته جاری" when today is in the first week of year 1 throws uncaught exception. Very unlikely in practice but formally a bug.
+- **Recommended fix**: Clamp `start` to `MIN_YEAR/1/1` after computing the week boundaries.
+
+---
+
+#### Low
+
+**L1 — `PardisRenderer` constructor calls `this.render()` before `_bindDayEvents()` — double render on init**
+
+- **Severity**: Low
+- **Title**: Calendar renders once in `PardisRenderer` constructor and again immediately in `PardisDatepicker._buildDOM()`
+- **Evidence**: `lib/pardis-jalali-datepicker.js` line 690–691:
+  ```js
+  constructor(containerEl, engine, options = {}) {
+    ...
+    this.render();   // ← first render
+  }
+  ```
+  Then `PardisDatepicker._buildDOM()` at lines 1147–1148 calls `this._renderer.render()` again immediately after construction. In popover mode `_buildDOM` at line 1188 also calls `render()`.
+- **Impact**: Two identical renders happen synchronously on page load per instance. Negligible performance cost at typical scale, but wasteful and could cause flicker in slow environments.
+- **Recommended fix**: Remove the `this.render()` call from `PardisRenderer` constructor, relying on the caller (`_buildDOM`) to trigger the initial render.
+
+---
+
+**L2 — `_onDocClick` listener fires even when picker is closed — minor extra work on every document click**
+
+- **Severity**: Low
+- **Title**: Document-level click handler checks `_isOpen` guard but is always registered
+- **Evidence**: `lib/pardis-jalali-datepicker.js` lines 1243–1247:
+  ```js
+  this._onDocClick = (e) => {
+    if (!this._isOpen) return;   // early return but handler still fires
+    ...
+  };
+  document.addEventListener('click', this._onDocClick);
+  ```
+  The handler is never removed while the picker is alive (only on `destroy()`). Every document click fires the function even when the popover is closed.
+- **Impact**: Negligible in isolation; in pages with dozens of pickers or very high click rates, this accumulates. More importantly, adding/removing the listener on open/close would be more correct semantically.
+- **Recommended fix**: Move `document.addEventListener('click', ...)` into `open()` and `document.removeEventListener('click', ...)` into `close()`. This also eliminates the need for the `if (!this._isOpen) return` guard.
+
+---
+
+**L3 — `PardisInputMask.setRangeValue()` sets raw Unicode arrow `←` in the `<input>` — disrupts mask parsing**
+
+- **Severity**: Low
+- **Title**: Range value format `"date  ←  date"` written to the input is not parseable by `_onInput`
+- **Evidence**: `lib/pardis-jalali-datepicker.js` lines 1047–1051:
+  ```js
+  setRangeValue(start, end) {
+    const s = PardisEngine.formatPersian(start.jy, start.jm, start.jd);
+    const e = PardisEngine.formatPersian(end.jy,   end.jm,   end.jd);
+    this.input.value = `${s}  ←  ${e}`;
+  }
+  ```
+  If the user clicks inside the range input and presses any digit, `_onInput` tries to parse the full value (including `←` and spaces). The `←` passes through `fromPersianNum()` unchanged, then `latin.replace(/[^\d\/]/g, '')` strips it, leaving just the digits of both dates concatenated, which misparses as a single garbled date string.
+- **Impact**: Editing a range input after a range is selected results in garbage being parsed or no-op. The input value is also visually confusing since it's not in the `YYYY/MM/DD` format the mask expects. Users editing the field may inadvertently trigger a wrong date selection.
+- **Recommended fix**: Clear the range input when the user focuses it in range mode (or use `readOnly` / a non-editable display), and re-enable masking only for single-date mode. Alternatively, use two separate inputs for range start and end.
+
+---
+
+**L4 — `aria-label` on calendar grid uses `formatNum` for year but not wrapped in a `<caption>` — month/year announcement may be skipped by some screen readers**
+
+- **Severity**: Low
+- **Title**: Calendar grid `aria-label` provides month+year, but lacks a `<caption>` or `aria-labelledby` structure
+- **Evidence**: `lib/pardis-jalali-datepicker.js` line 723:
+  ```js
+  <div class="pardis-days" role="grid" aria-label="${MONTH_NAMES[info.month-1]} ${formatNum(info.year,nt)}">
+  ```
+  The ARIA grid has a direct `aria-label`. However, the month/year heading is a `<div>` with `role="button"` chips, not a `<h2>` or element with an ID that can be referenced via `aria-labelledby`. Some screen readers (particularly older JAWS versions) may not announce the `aria-label` on a `div[role=grid]` reliably.
+- **Impact**: Low risk — most modern screen readers handle `aria-label` on `role=grid` correctly. Potential accessibility gap for users on older assistive technology.
+- **Recommended fix**: Add an ID to the month+year heading element and use `aria-labelledby` on the grid, which has broader screen reader support than `aria-label` on non-landmark elements.
+
+---
+
+**L5 — `package.json` missing `"module"` and `"exports"` fields — no ESM hint for bundlers**
+
+- **Severity**: Low
+- **Title**: Package only has `"main"` (CJS path), no `"module"` or `"exports"` map for bundler-native ESM
+- **Evidence**: `package.json`:
+  ```json
+  {
+    "main": "lib/pardis-jalali-datepicker.js",
+    "style": "lib/pardis-jalali-datepicker.css"
+  }
+  ```
+  The library is vanilla JS with no module format (no `import`/`export`, no `module.exports`). There is no `"exports"` field and no `"module"` field.
+- **Impact**: Bundlers (Vite, Webpack, Rollup) will include the full JS file via `"main"`. There is no tree-shaking hint. The `"style"` field is non-standard and not used by most bundlers automatically. A user importing the package from npm cannot do `import { PardisDatepicker } from 'pardis-jalali-datepicker'` because the file does not export anything.
+- **Recommended fix**: For the current vanilla approach (browser-only `<script>` usage), the existing `"main"` field is acceptable. However, the docs/06-package-structure.md spec calls for ESM/CJS/UMD builds and an `"exports"` map. Consider either: (a) converting the library to use `export class PardisDatepicker` and adding a build step, or (b) documenting that only `<script src="">` usage is supported and removing misleading `"main"` field.
+
+---
+
+**L6 — `README.md` "Internal Architecture" table lists four classes but the library has five**
+
+- **Severity**: Low
+- **Title**: Architecture table omits `PardisInputMask`
+- **Evidence**: `README.md` lines 387–395:
+  ```
+  | Class | Role |
+  | JalaaliUtil | ... |
+  | PardisEngine | ... |
+  | PardisRenderer | ... |
+  | PardisInputMask | ... |
+  | PardisDatepicker | ... |
+  ```
+  Actually on inspection the table does include all five. However, the introductory sentence at line 387 says "composed of **four** independent classes" — there are five.
+- **Impact**: Minor documentation inaccuracy.
+- **Recommended fix**: Change "four" to "five" in the sentence at `README.md:387`.
+
+---
+
+**L7 — Git object store has corrupted macOS `._` index sidecar file causing non-monotonic index warnings**
+
+- **Severity**: Low (repository hygiene)
+- **Title**: macOS AppleDouble resource fork `._pack-*.idx` file corrupts pack index
+- **Evidence**: Running `git log` produces repeated warnings:
+  ```
+  error: non-monotonic index .git/objects/pack/._pack-c60b5be1d7a03d3a19bd1274feb8a41f1a0c4f8c.idx
+  ```
+  The file `._pack-c60b5be1d7a03d3a19bd1274feb8a41f1a0c4f8c.idx` is a macOS metadata sidecar that has been placed inside `.git/objects/pack/`, where git expects only valid pack index files.
+- **Impact**: Git operations produce repeated error output on every invocation. The actual pack index (without the `._` prefix) is unaffected. No data loss risk, but noisy CI and confusing for contributors.
+- **Recommended fix**: Delete the sidecar file:
+  ```bash
+  rm .git/objects/pack/._pack-c60b5be1d7a03d3a19bd1274feb8a41f1a0c4f8c.idx
+  ```
+  Add `.DS_Store` and `._*` to `.gitattributes` export-ignore. On macOS, run `dot_clean -m .git/objects/pack/` to remove all `._` files. Add to `.gitignore` (though `.git/` itself is not tracked, this prevents future sidecar files from being created in tracked directories).
+
+---
+
+### Recommended Fix Plan
+
+| # | Priority | Action | File / Location |
+|---|----------|--------|-----------------|
+| 1 | **Medium** | Fix README `disabledDates` example — use `{ year, month, day }` destructuring, not `{ gy, gm, gd }` | `README.md:244` |
+| 2 | **Medium** | Guard `goToToday()` against `isDisabled()` before selecting | `lib/pardis-jalali-datepicker.js:265` |
+| 3 | **Medium** | Document `setOption()` runtime limitations or extend it to propagate all engine options | `lib/pardis-jalali-datepicker.js:1403` / `README.md:126` |
+| 4 | **Medium** | Clamp `targetJdn` in `_focusDayOffset()` to valid year range before calling `d2j()` | `lib/pardis-jalali-datepicker.js:1358` |
+| 5 | **Medium** | Clamp `thisWeek` preset start date to `MIN_YEAR/1/1` | `lib/pardis-jalali-datepicker.js:547` |
+| 6 | **Low** | Remove `this.render()` from `PardisRenderer` constructor (double-render on init) | `lib/pardis-jalali-datepicker.js:690` |
+| 7 | **Low** | Move document click listener into `open()`/`close()` instead of always-on | `lib/pardis-jalali-datepicker.js:1243` |
+| 8 | **Low** | Clear range input on focus / make it read-only in range mode | `lib/pardis-jalali-datepicker.js:1047` |
+| 9 | **Low** | Add `aria-labelledby` to calendar grid referencing month+year heading | `lib/pardis-jalali-datepicker.js:723` |
+| 10 | **Low** | Add `"exports"` / `"module"` field or document `<script>` as the only supported usage | `package.json` |
+| 11 | **Low** | Fix "four" → "five" in README architecture paragraph | `README.md:387` |
+| 12 | **Low** | Remove macOS `._` pack index sidecar from `.git/objects/pack/` | `.git/objects/pack/` |
+
+---
+
+### Verification Checklist
+
+- [ ] README `disabledDates` Friday-predicate example renders correctly — test: copy snippet, verify Fridays are disabled
+- [ ] `goToToday()` is a no-op (or navigates without selecting) when today is outside `minDate`/`maxDate`
+- [ ] `setOption('minDate', ...)` is either documented as no-op or propagates to engine — verify in browser console
+- [ ] Arrow-key navigation at year 1 day 1 (`ArrowUp`) does not throw exception
+- [ ] Arrow-key navigation at year 3177 last day (`ArrowDown`) does not throw exception
+- [ ] "هفته جاری" preset does not throw for any today date
+- [ ] `npm pack --dry-run` confirms only `lib/`, `package.json`, `README.md`, `LICENSE` are included
+- [ ] `git log` produces no `non-monotonic index` warnings after cleanup
+- [ ] Screen reader announces month+year when calendar grid receives focus
+
+---
+
 ## 2026-02-22
 
 ### Summary

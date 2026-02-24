@@ -241,7 +241,7 @@ const dp = new PardisDatepicker('#input', {
 // Disable dates with a predicate (e.g. disable all Fridays)
 const dp2 = new PardisDatepicker('#input2', {
   disabledDates: (jy, jm, jd) => {
-    const { gy, gm, gd } = PardisEngine.buildDatePayload(jy, jm, jd, 'gregorian');
+    const { gy, gm, gd } = JalaaliUtil.toGregorian(jy, jm, jd);
     return new Date(gy, gm - 1, gd).getDay() === 5; // Friday
   },
 });
