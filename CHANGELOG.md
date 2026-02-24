@@ -4,6 +4,18 @@ All notable changes to this project will be documented in this file.
 
 The format is based on Keep a Changelog, and this project adheres to Semantic Versioning.
 
+## [1.2.0] - 2026-02-24
+
+### Added
+- `setOption()` now propagates all runtime-relevant options to the engine and triggers a re-render: `minDate`, `maxDate`, `disabledDates`, `highlightedDates`, `maxRange`, `numeralType` (in addition to existing `rangeMode` and `outputFormat`).
+
+### Fixed
+- Fixed range-mode input: focusing the input now clears the current selection and input value so the user can immediately start picking a fresh range without typing corruption.
+
+### Changed
+- Updated README `setOption` method description to list all supported keys.
+- Fixed README architecture section: "four independent classes" corrected to "five".
+
 ## [1.1.1] - 2026-02-24
 
 ### Fixed
