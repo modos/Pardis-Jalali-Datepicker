@@ -123,7 +123,7 @@ Copy `lib/pardis-jalali-datepicker.js` and `lib/pardis-jalali-datepicker.css` in
 | `dp.getValue()` | Returns the current date payload, or `null` if nothing is selected |
 | `dp.setValue(jy, jm, jd)` | Programmatically select a Jalali date |
 | `dp.clear()` | Clear the current selection |
-| `dp.setOption(key, value)` | Update an option after construction (currently supports `rangeMode` and `outputFormat` only) |
+| `dp.setOption(key, value)` | Update an option after construction and re-render. Supports all constructor options: `rangeMode`, `outputFormat`, `minDate`, `maxDate`, `disabledDates`, `highlightedDates`, `maxRange`, `numeralType` |
 | `dp.destroy()` | Remove all event listeners and DOM elements created by this instance |
 
 Access the underlying engine directly via `dp.engine` for advanced use.
@@ -384,7 +384,7 @@ The input wrapper is created automatically by `PardisDatepicker` if it does not 
 
 ## Internal Architecture
 
-The library is composed of four independent classes:
+The library is composed of five independent classes:
 
 | Class | Role |
 |---|---|
