@@ -60,8 +60,9 @@ Include the library files and create a datepicker on any `<input>`:
 
 <input id="myInput" class="pardis-input" type="text" placeholder="۱۴۰۴/۰۱/۰۱">
 
-<script src="lib/pardis-jalali-datepicker.js"></script>
+<script src="dist/index.global.js"></script>
 <script>
+  const { PardisDatepicker } = PardisJalaliDatepicker;
   const dp = new PardisDatepicker('#myInput', {
     outputFormat: 'both',
     onChange: (payload) => {

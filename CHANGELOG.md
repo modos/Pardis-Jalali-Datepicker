@@ -4,6 +4,21 @@ All notable changes to this project will be documented in this file.
 
 The format is based on Keep a Changelog, and this project adheres to Semantic Versioning.
 
+## [2.0.1] - 2026-02-26
+
+### Added
+- `prepublishOnly` script to ensure `dist/` is built before `npm publish`.
+
+### Fixed
+- Fixed a crash at the absolute year boundary (`MAX_YEAR`) where `getDaysOfMonth()` could call `isDisabled()` with an out-of-range year while generating filler days.
+- Fixed `demo.html` loading the ESM `lib/` file via a plain `<script>` tag; the demo now loads the IIFE build (`dist/index.global.js`).
+- Fixed README Quick Start browser example to use the IIFE build (`dist/index.global.js`).
+- Fixed preset range name mismatch by supporting `'last7Days'`/`'last30Days'` (with backward-compatible aliases for `'last7'`/`'last30'`).
+
+### Changed
+- TypeScript declarations now match runtime API: `setValue(jy, jm, jd)`, `clear()`, plus exported `JalaaliUtil` and `PardisEngine` typings.
+- `PardisDatepicker` now exposes `goToToday()` and `getPresetRange()` wrappers (delegating to the engine).
+
 ## [2.0.0] - 2026-02-26
 
 ### Added

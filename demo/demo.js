@@ -2,6 +2,7 @@
    APP — Demo Page
    ================================================================ */
 (() => {
+  const { PardisDatepicker } = window.PardisJalaliDatepicker;
   const themeSwitcher = document.getElementById('themeSwitcher');
   // ── Event Log (no-op if Dev Panel is removed; playground has its own log) ──
   function logEvent(tag, label, payload) {

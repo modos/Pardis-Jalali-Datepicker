@@ -4,7 +4,7 @@
 
 ### Summary
 
-Full repository audit of **pardis-jalali-datepicker** at version **2.0.0** (tag `v2.0.0`). This is a major release introducing a `tsup` build pipeline, ESM/CJS/IIFE output, hand-authored TypeScript declarations, and an `aria-labelledby` accessibility fix. All findings from the v1.1.0 audit have been resolved. The code quality and date-math correctness remain high. However, the v2.0.0 release introduced two regressions: `demo.html` now fails in-browser (loads the ES-module `lib/` file via a plain `<script>` tag), and there is a preset-name mismatch in `getPresetRange()` between the TypeScript definition/README and the JS implementation. Additionally, the TypeScript declaration file has several gaps. No Critical findings other than the broken demo.
+Full repository audit of **pardis-jalali-datepicker** at version **2.0.0** (tag `v2.0.0`). This is a major release introducing a `tsup` build pipeline, ESM/CJS/IIFE output, hand-authored TypeScript declarations, and an `aria-labelledby` accessibility fix. All findings from the v1.1.0 audit have been resolved. The code quality and date-math correctness remain high. However, the v2.0.0 release introduced multiple regressions: `demo.html` now fails in-browser (loads the ES-module `lib/` file via a plain `<script>` tag), there is a preset-name mismatch in `getPresetRange()` between the TypeScript definition/README and the JS implementation, and the calendar can crash at the absolute year boundary (`MAX_YEAR`) when generating filler days.
 
 ---
 
@@ -14,7 +14,7 @@ Full repository audit of **pardis-jalali-datepicker** at version **2.0.0** (tag 
 - **Proper ESM-first build** — Named exports (`export { PardisDatepicker, PardisEngine, JalaaliUtil }`) at the bottom of `lib/` allow tsup to generate correct named exports in all three formats. CJS and ESM both verified to return `typeof PardisDatepicker === 'function'`.
 - **Clean package.json** — `"exports"` map with `"types"` condition first, `"main"` → `dist/index.cjs`, `"module"` → `dist/index.mjs`, `"types"` → `dist/index.d.ts`, `"files"` includes both `lib/` and `dist/`. `sideEffects`, `engines`, correct.
 - **CSS still clean** — No global resets, no `@font-face`, no `@import`. All selectors prefixed `.pardis-*`.
-- **Release hygiene** — All six version tags (`v1.0.1`–`v2.0.0`) present and annotated. CHANGELOG follows Keep a Changelog. Conventional commit messages throughout.
+- **Release hygiene** — All six version tags (`v1.0.1`–`v2.0.0`) present; `v2.0.0` is annotated (earlier tags are lightweight). CHANGELOG follows Keep a Changelog. Conventional commit messages throughout.
 - **Test suite updated** — `scripts/year-boundary-test.js` correctly switched to `require('../dist/index.cjs')` after lib/ became an ES module.
 - **Accessibility improvement** — `PardisDatepicker._counter` static property, `_headingId` threaded through `PardisRenderer` options, all three view heading divs stamped with `id="${headingId}"`, popover uses `aria-labelledby` instead of redundant `aria-label`.
 
@@ -29,6 +29,15 @@ Full repository audit of **pardis-jalali-datepicker** at version **2.0.0** (tag 
 - **Evidence:** `demo.html` line 378: `<script src="lib/pardis-jalali-datepicker.js"></script>`. As of v2.0.0, `lib/pardis-jalali-datepicker.js` ends with `export { ... }`, making it an ES module. A plain `<script>` tag treats the file as a classic script and silently fails to expose any globals. `demo/demo.js` line 37 then calls `new PardisDatepicker(...)` → `ReferenceError: PardisDatepicker is not defined`.
 - **Impact:** The GitHub Pages demo / local demo is completely non-functional.
 - **Fix:** Replace `demo.html` line 378 with `<script src="dist/index.global.js"></script>` (IIFE build; global is `window.PardisJalaliDatepicker`). Update any inline `new PardisDatepicker(...)` calls in demo scripts to destructure: `const { PardisDatepicker } = PardisJalaliDatepicker;`.
+
+**C2 — `getDaysOfMonth()` can throw at `MAX_YEAR` due to out-of-range filler dates**
+- **Severity:** Critical
+- **Evidence:**
+  - `lib/pardis-jalali-datepicker.js` `getDaysOfMonth()` ("Next month filler" block) computes `nextYear++` when the view is on month 12, then evaluates `isDisabled(nextYear, nextMonth, d)` for filler days.
+  - `lib/pardis-jalali-datepicker.js` `isDisabled(jy, jm, jd)` calls `JalaaliUtil.j2d(jy, jm, jd)` immediately, before any year-range guard.
+  - Repro (runtime, `dist/index.cjs`): `new PardisEngine({ initialYear: 3177, initialMonth: 12 }).getDaysOfMonth()` throws `Invalid Jalaali year: 3178`.
+- **Impact:** Rendering Esfand **3177** (or navigating there) can crash the calendar render path with an uncaught exception.
+- **Fix:** Add a year-range guard at the start of `isDisabled()` (treat out-of-range years as disabled) and/or clamp filler-day generation so it never produces `jy > MAX_YEAR`.
 
 ---
 
@@ -92,13 +101,14 @@ Full repository audit of **pardis-jalali-datepicker** at version **2.0.0** (tag 
 - **Impact:** TypeScript users can pass `mobileMode: true` expecting different behaviour; nothing happens.
 - **Fix:** Either implement the option or remove it from the TS declaration (and from the constructor defaults in JS) with a note in CHANGELOG under `Removed`.
 
-**M4 — `dist/` is not in `.gitignore` in practice; dist files are committed**
+**M4 — `dist/` is gitignored (good) but required for publishing; missing publish hook can ship stale/missing builds**
 - **Severity:** Medium
-- **Evidence:** `.gitignore` line 5: `dist/`. However, running `git ls-files dist/` shows the `dist/` directory IS tracked (added to git as part of v2.0.0 release). The `.gitignore` entry is being overridden by the explicit `git add`.
-- **Impact:** Build artifacts (generated files) are committed to git, bloating repo history, causing merge conflicts when different developers build. The `npm publish` flow requires `dist/` to exist at publish time — it should be built fresh then, not stored in git.
-- **Fix (two options):**
-  - **Option A (recommended):** Remove `dist/` from git tracking (`git rm -r --cached dist/`), keep it in `.gitignore`, and add a `prepublishOnly` script: `"prepublishOnly": "npm run build"`.
-  - **Option B:** Remove `dist/` from `.gitignore` and commit it intentionally — but document this decision.
+- **Evidence:**
+  - `package.json` `files` includes `dist`, and `main/module/types/exports` all point into `dist/*`.
+  - `.gitignore` includes `dist/` and `git ls-files dist` returns empty, meaning `dist/` is not tracked and must be built locally before publish.
+  - `package.json` has `build` but no `prepublishOnly` (so `npm publish` can run without rebuilding).
+- **Impact:** A maintainer can accidentally publish without running `npm run build`, resulting in missing or stale `dist/` artifacts in the published package.
+- **Fix:** Add `"prepublishOnly": "npm run build"` to `package.json` and keep verifying `npm pack --dry-run` output before publishing.
 
 ---
 
@@ -136,7 +146,7 @@ Full repository audit of **pardis-jalali-datepicker** at version **2.0.0** (tag 
 6. **[H2] Add `JalaaliUtil` and `PardisEngine` TS declarations** — As shown in H2 fix above.
 7. **[M3] Resolve `mobileMode`** — Remove from TS and JS constructor defaults, or implement.
 8. **[L3] Add `prepublishOnly`** — `"prepublishOnly": "npm run build"` in `package.json`.
-9. **[M4] Decide on `dist/` git tracking** — Recommended: untrack, add `prepublishOnly`.
+9. **[M4] Ensure publish safety** — Keep `dist/` gitignored, but enforce builds via `prepublishOnly` and verify `npm pack --dry-run` contents before publishing.
 10. **[L4] Document IIFE global shape** in README CDN section.
 
 Release these fixes as **v2.0.1** (patch).

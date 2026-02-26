@@ -28,10 +28,28 @@ export interface PardisOptions {
   onClear?: (() => void) | null;
 }
 
+export declare const JalaaliUtil: {
+  isLeapJalaaliYear(jy: number): boolean;
+  jalaaliMonthLength(jy: number, jm: number): number;
+  toJalaali(gy: number, gm: number, gd: number): JalaliDate;
+  toGregorian(jy: number, jm: number, jd: number): { gy: number; gm: number; gd: number };
+  todayJalaali(): JalaliDate;
+  j2d(jy: number, jm: number, jd: number): number;
+  d2j(jdn: number): JalaliDate;
+};
+
+export declare class PardisEngine {
+  static MIN_YEAR: number;
+  static MAX_YEAR: number;
+  static buildDatePayload(jy: number, jm: number, jd: number, format?: 'jalali' | 'gregorian' | 'both'): object;
+  static formatNum(n: number, numeralType: 'persian' | 'latin'): string;
+}
+
 export declare class PardisDatepicker {
   constructor(target: string | HTMLElement, options?: PardisOptions);
   getValue(): object | null;
-  setValue(date: JalaliDate): void;
+  setValue(jy: number, jm: number, jd: number): void;
+  clear(): void;
   setOption(key: keyof PardisOptions, value: unknown): void;
   open(): void;
   close(): void;

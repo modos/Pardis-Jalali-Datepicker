@@ -2,6 +2,7 @@
    PLAYGROUND — Interactive Feature Tester
    ============================================================ */
 (() => {
+  const { PardisDatepicker, PardisEngine, JalaaliUtil } = window.PardisJalaliDatepicker;
   // ── State ──
   let pgInstance = null;
 
@@ -151,6 +152,9 @@
     // JS
     lines.push(hc('JavaScript'));
     rawLines.push('// JavaScript');
+
+    lines.push(hk('const') + ' { ' + hf('PardisDatepicker') + ' } = ' + hf('PardisJalaliDatepicker') + ';');
+    rawLines.push('const { PardisDatepicker } = PardisJalaliDatepicker;');
 
     const target = isInline ? '#myCalendar' : '#myInput';
     lines.push(hk('const') + ' dp = ' + hk('new') + ' ' + hf('PardisDatepicker') + '(' + hs(target) + ', {');
